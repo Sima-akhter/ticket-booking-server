@@ -26,6 +26,17 @@ async function run() {
 
     const db = client.db('ticket_booking');
     const userCollection = db.collection('users');
+    const ticketCollection = db.collection('tickets');
+
+// add ticket
+ app.post("/tickets", async (req, res) => {
+      const newTicket = req.body;
+      newTicket.create_date = new Date();
+      const result = await ticketCollection.insertOne(newTicket);
+      res.send(result);
+    });
+
+
 
     //  POST users
     app.post('/users', async (req, res) => {
