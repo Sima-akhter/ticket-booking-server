@@ -28,7 +28,17 @@ async function run() {
     const userCollection = db.collection('users');
     const ticketCollection = db.collection('tickets');
 
-// add ticket
+
+    // tickets api
+    app.get('/tickets', async(req, res)=>{
+        const query = {}
+        const cursor = ticketCollection.find(query);
+        const result = await cursor.toArray();
+        res.send(result);
+
+    })
+
+// add ticket api
  app.post("/tickets", async (req, res) => {
       const newTicket = req.body;
       newTicket.create_date = new Date();
