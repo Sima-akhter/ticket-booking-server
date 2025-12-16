@@ -143,7 +143,14 @@ async function run() {
       res.send(result);
     });
 
-    
+    //  Advertisement tickets (Exactly 6)
+    app.get("/tickets/advertised", async (req, res) => {
+      const result = await ticketCollection
+        .find({ isAdvertised: true })
+        .limit(6)
+        .toArray();
+      res.send(result);
+    });
 
     //  Single ticket details
     app.get("/tickets/:id", async (req, res) => {
