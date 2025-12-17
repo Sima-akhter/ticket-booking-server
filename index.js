@@ -190,6 +190,37 @@ async function run() {
         });
 
 
+        // vendor revenue api
+        app.get("/vendor/revenue/:email", async (req, res) => {
+            const vendorEmail = req.params.email;
+
+            // Total tickets added
+            const totalTicketsAdded = await ticketCollection.countDocuments({
+                vendorEmail,
+            });
+
+            // Accepted bookings
+            const bookings = await bookingsCollection
+                .find({ vendorEmail, status: "accepted" })
+                .toArray();
+
+            let totalRevenue = 0;
+            let totalTicketsSold = 0;
+
+            bookings.forEach((booking) => {
+                totalTicketsSold += booking.bookingQuantity;
+                totalRevenue += booking.bookingQuantity * booking.unitPrice;
+            });
+
+            res.send({
+                totalRevenue,
+                totalTicketsSold,
+                totalTicketsAdded,
+            });
+        });
+
+
+
 
 
 
