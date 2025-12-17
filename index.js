@@ -132,7 +132,8 @@ async function run() {
         const db = client.db("ticket_booking");
         const userCollection = db.collection("users");
         const ticketCollection = db.collection("tickets");
-        const bookingsCollection = db.collection('vendor')
+        const bookingsCollection = db.collection("bookings");
+
 
         /* ==========================
             TICKETS API
@@ -174,6 +175,20 @@ async function run() {
 
             res.send(result);
         });
+
+
+        //vendor booking reject
+        app.patch("/bookings/reject/:id", async (req, res) => {
+            const id = req.params.id;
+
+            const result = await bookingsCollection.updateOne(
+                { _id: new ObjectId(id) },
+                { $set: { status: "rejected" } }
+            );
+
+            res.send(result);
+        });
+
 
 
 
