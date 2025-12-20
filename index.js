@@ -20,11 +20,11 @@ admin.initializeApp({
 });
 
 function generateTrackingId() {
-  const prefix = "PRCL";
-  const date = new Date().toISOString().slice(0, 10).replace(/-/g, "")
-  const random = crypto.randomBytes(3).toString("hex").toUpperCase();
+    const prefix = "PRCL";
+    const date = new Date().toISOString().slice(0, 10).replace(/-/g, "")
+    const random = crypto.randomBytes(3).toString("hex").toUpperCase();
 
-  return `${prefix}-${date}-${random}`;
+    return `${prefix}-${date}-${random}`;
 }
 
 
@@ -34,24 +34,24 @@ app.use(express.json());
 
 const verifyFBToken = async (req, res, next) => {
 
-  // console.log('headers in the middleware', req.headers?.authorization)
+    // console.log('headers in the middleware', req.headers?.authorization)
 
-  const token = req.headers.authorization;
+    const token = req.headers.authorization;
 
-  if (!token) {
-    return res.status(401).send({ message: 'unauthorized access' })
-  }
+    if (!token) {
+        return res.status(401).send({ message: 'unauthorized access' })
+    }
 
-  try {
-    const idToken = token.split(' ')[1];
-    const decoded = await admin.auth().verifyIdToken(idToken);
-    console.log('decoded in the token', decoded);
-    req.decoded_email = decoded.email;
-    next();
-  }
-  catch (err) {
-    return res.status(401).send({ message: 'unauthorized access' })
-  }
+    try {
+        const idToken = token.split(' ')[1];
+        const decoded = await admin.auth().verifyIdToken(idToken);
+        console.log('decoded in the token', decoded);
+        req.decoded_email = decoded.email;
+        next();
+    }
+    catch (err) {
+        return res.status(401).send({ message: 'unauthorized access' })
+    }
 
 
 }
@@ -67,28 +67,6 @@ const client = new MongoClient(uri, {
     },
 });
 
-//==============////================
-// const verifyToken = async (req, res, next) => {
-//     if (!req.headers.authorization) {
-//         return res.status(401).send({ message: "unauthorized" });
-//     }
-
-//     const token = req.headers.authorization.split(" ")[1];
-
-//     try {
-//         const decoded = await admin.auth().verifyIdToken(token);
-//         req.decoded = decoded;
-//         next();
-//     } catch (error) {
-//         return res.status(401).send({ message: "unauthorized" });
-//     }
-// };
-
-
-
-
-
-
 async function run() {
     try {
         await client.connect();
@@ -100,37 +78,109 @@ async function run() {
         const paymentsCollection = db.collection("payments");
 
         //=====================////================
-const verifyAdmin = async (req, res, next) => {
-    const email = req.decoded_email;
-    const user = await userCollection.findOne({ email });
+        const verifyAdmin = async (req, res, next) => {
+            const email = req.decoded_email;
+            const user = await userCollection.findOne({ email });
 
-    if (user?.role !== "admin") {
-        return res.status(404).send({ message: "forbidden" });
-    }
-    next();
-};
+            if (user?.role !== "admin") {
+                return res.status(404).send({ message: "forbidden" });
+            }
+            next();
+        };
 
 
-         //users related apis
-    app.get('/users', verifyFBToken, async(req, res) =>{
-      const searchText = req.query.searchText;
-      const query = {};
+        // CREATE BOOKING
+        app.post("/bookings", verifyFBToken, async (req, res) => {
+            const booking = req.body;
+            booking.userEmail = req.decoded_email;
+            booking.status = "pending";
+            booking.createdAt = new Date();
 
-      if(searchText){
-        // query.displayName = {$regex: searchText, $options: 'i'}
-
-        query.$or = [
-          {displayName: {$regex: searchText, $options: 'i'}},
-          {email: {$regex: searchText, $options: 'i'}},
-        ]
-      }
+            const result = await bookingsCollection.insertOne(booking);
+            res.send(result);
+        });
 
 
 
-      const cursor = userCollection.find(query).sort({createdAt: -1}).limit(5);
-      const result = await cursor.toArray();
-      res.send(result);
-    })
+
+
+        //users related apis
+        app.get('/users', verifyFBToken, async (req, res) => {
+            const searchText = req.query.searchText;
+            const query = {};
+
+            if (searchText) {
+                // query.displayName = {$regex: searchText, $options: 'i'}
+
+                query.$or = [
+                    { displayName: { $regex: searchText, $options: 'i' } },
+                    { email: { $regex: searchText, $options: 'i' } },
+                ]
+            }
+
+
+
+            const cursor = userCollection.find(query).sort({ createdAt: -1 }).limit(5);
+            const result = await cursor.toArray();
+            res.send(result);
+        })
+
+
+        // Get user profile by email
+        app.get("/users/profile/:email", verifyFBToken, async (req, res) => {
+            const email = req.params.email;
+
+            if (req.decoded_email !== email) {
+                return res.status(403).send({ message: "Forbidden" });
+            }
+
+            const userProfile = await userCollection.findOne({ email });
+
+            if (!userProfile) {
+                return res.status(404).send({ message: "User not found" });
+            }
+
+            res.send(userProfile);
+        });
+
+
+
+        app.get("/bookings/user/:email", verifyFBToken, async (req, res) => {
+            if (req.params.email !== req.decoded_email) {
+                return res.status(403).send({ message: "Forbidden" });
+            }
+
+            const result = await bookingsCollection
+                .find({ userEmail: req.params.email })
+                .toArray();
+
+            res.send(result);
+        });
+
+
+        app.patch("/bookings/pay/:id", verifyFBToken, async (req, res) => {
+            const bookingId = req.params.id;
+
+            const booking = await bookingsCollection.findOne({
+                _id: new ObjectId(bookingId),
+            });
+
+            // update booking status
+            await bookingsCollection.updateOne(
+                { _id: new ObjectId(bookingId) },
+                { $set: { status: "paid" } }
+            );
+
+            // reduce ticket quantity
+            await ticketCollection.updateOne(
+                { _id: new ObjectId(booking.ticketId) },
+                { $inc: { ticketQuantity: -booking.bookingQuantity } }
+            );
+
+            res.send({ success: true });
+        });
+
+
 
 
 
@@ -141,18 +191,18 @@ const verifyAdmin = async (req, res, next) => {
             res.send(result);
         });
 
-        app.patch('/users/:id/role', verifyFBToken, verifyAdmin, async(req, res) =>{
-      const id = req.params.id;
-      const roleInfo = req.body;
-      const query = {_id: new ObjectId(id)}
-      const updateDoc= {
-        $set: {
-          role: roleInfo.role
-        }
-      }
-      const result = await userCollection.updateOne(query, updateDoc)
-      res.send(result);
-    })
+        app.patch('/users/:id/role', verifyFBToken, verifyAdmin, async (req, res) => {
+            const id = req.params.id;
+            const roleInfo = req.body;
+            const query = { _id: new ObjectId(id) }
+            const updateDoc = {
+                $set: {
+                    role: roleInfo.role
+                }
+            }
+            const result = await userCollection.updateOne(query, updateDoc)
+            res.send(result);
+        })
 
         // Fake payment (no stripe)
         app.post("/pay/:bookingId", async (req, res) => {
@@ -190,110 +240,110 @@ const verifyAdmin = async (req, res, next) => {
 
         //creat payment
         app.post('/payment-checkout-session', verifyFBToken, async (req, res) => {
-    const { bookingId } = req.body;
+            const { bookingId } = req.body;
 
-    const booking = await bookingsCollection.findOne({
-        _id: new ObjectId(bookingId)
-    });
+            const booking = await bookingsCollection.findOne({
+                _id: new ObjectId(bookingId)
+            });
 
-    if (!booking) {
-        return res.status(404).send({ message: "Booking not found" });
-    }
-
-    const ticket = await ticketCollection.findOne({
-        _id: new ObjectId(booking.ticketId)
-    });
-
-    const now = new Date();
-    const departure = new Date(ticket.departureDateTime);
-
-    if (departure < now) {
-        return res.status(400).send({
-            message: "Departure time passed. Payment not allowed."
-        });
-    }
-
-    if (booking.status !== "accepted") {
-        return res.status(400).send({
-            message: "Booking not accepted yet"
-        });
-    }
-
-    const amount = booking.totalPrice * 100;
-
-    const session = await stripe.checkout.sessions.create({
-        line_items: [
-            {
-                price_data: {
-                    currency: 'USD',
-                    unit_amount: amount,
-                    product_data: {
-                        name: booking.ticketTitle
-                    }
-                },
-                quantity: 1
+            if (!booking) {
+                return res.status(404).send({ message: "Booking not found" });
             }
-        ],
-        mode: 'payment',
-        metadata: {
-            bookingId: booking._id.toString()
-        },
-        customer_email: booking.userEmail,
-        success_url: `${process.env.SITE_DOMAON}/dashboard/bookingSuccess`,
-        cancel_url: `${process.env.SITE_DOMAON}/dashboard/bookingCancelled`,
-    });
 
-    res.send({ url: session.url });
-});
+            const ticket = await ticketCollection.findOne({
+                _id: new ObjectId(booking.ticketId)
+            });
+
+            const now = new Date();
+            const departure = new Date(ticket.departureDateTime);
+
+            if (departure < now) {
+                return res.status(400).send({
+                    message: "Departure time passed. Payment not allowed."
+                });
+            }
+
+            if (booking.status !== "accepted") {
+                return res.status(400).send({
+                    message: "Booking not accepted yet"
+                });
+            }
+
+            const amount = booking.totalPrice * 100;
+
+            const session = await stripe.checkout.sessions.create({
+                line_items: [
+                    {
+                        price_data: {
+                            currency: 'USD',
+                            unit_amount: amount,
+                            product_data: {
+                                name: booking.ticketTitle
+                            }
+                        },
+                        quantity: 1
+                    }
+                ],
+                mode: 'payment',
+                metadata: {
+                    bookingId: booking._id.toString()
+                },
+                customer_email: booking.userEmail,
+                success_url: `${process.env.SITE_DOMAON}/dashboard/bookingSuccess`,
+                cancel_url: `${process.env.SITE_DOMAON}/dashboard/bookingCancelled`,
+            });
+
+            res.send({ url: session.url });
+        });
 
 
-app.post("/payment/success/:bookingId", verifyFBToken, async (req, res) => {
-    const bookingId = req.params.bookingId;
+        app.post("/payment/success/:bookingId", verifyFBToken, async (req, res) => {
+            const bookingId = req.params.bookingId;
 
-    const booking = await bookingsCollection.findOne({
-        _id: new ObjectId(bookingId)
-    });
+            const booking = await bookingsCollection.findOne({
+                _id: new ObjectId(bookingId)
+            });
 
-    if (!booking) {
-        return res.status(404).send({ message: "Booking not found" });
-    }
+            if (!booking) {
+                return res.status(404).send({ message: "Booking not found" });
+            }
 
-    await bookingsCollection.updateOne(
-        { _id: new ObjectId(bookingId) },
-        { $set: { status: "paid" } }
-    );
+            await bookingsCollection.updateOne(
+                { _id: new ObjectId(bookingId) },
+                { $set: { status: "paid" } }
+            );
 
-    await ticketCollection.updateOne(
-        { _id: new ObjectId(booking.ticketId) },
-        { $inc: { ticketQuantity: -booking.bookingQuantity } }
-    );
+            await ticketCollection.updateOne(
+                { _id: new ObjectId(booking.ticketId) },
+                { $inc: { ticketQuantity: -booking.bookingQuantity } }
+            );
 
-    await paymentsCollection.insertOne({
-        bookingId,
-        userEmail: booking.userEmail,
-        ticketTitle: booking.ticketTitle,
-        amount: booking.totalPrice,
-        transactionId: "stripe_txn",
-        paymentDate: new Date()
-    });
+            await paymentsCollection.insertOne({
+                bookingId,
+                userEmail: booking.userEmail,
+                ticketTitle: booking.ticketTitle,
+                amount: booking.totalPrice,
+                transactionId: "stripe_txn",
+                paymentDate: new Date()
+            });
 
-    res.send({ success: true });
-});
+            res.send({ success: true });
+        });
 
-app.get("/user/payments/:email", verifyFBToken, async (req, res) => {
-    const email = req.params.email;
+        app.get("/user/payments/:email", verifyFBToken, async (req, res) => {
+            const email = req.params.email;
 
-    if (req.decoded.email !== email) {
-        return res.status(403).send({ message: "forbidden" });
-    }
+            if (req.decoded.email !== email) {
+                return res.status(403).send({ message: "forbidden" });
+            }
 
-    const payments = await paymentsCollection
-        .find({ userEmail: email })
-        .sort({ paymentDate: -1 })
-        .toArray();
+            const payments = await paymentsCollection
+                .find({ userEmail: email })
+                .sort({ paymentDate: -1 })
+                .toArray();
 
-    res.send(payments);
-});
+            res.send(payments);
+        });
 
 
 
@@ -307,9 +357,12 @@ app.get("/user/payments/:email", verifyFBToken, async (req, res) => {
 
         // vendor get api
         app.get("/users/:email/role", async (req, res) => {
+
             const email = req.params.email;
+            console.log(email)
 
             const user = await userCollection.findOne({ email });
+            console.log(user)
 
             if (!user) {
                 return res.status(404).send({ role: "user" });
