@@ -58,7 +58,7 @@ const verifyFBToken = async (req, res, next) => {
 
 // MongoDB URI
 const uri = `mongodb+srv://${process.env.USER_NAME}:${process.env.USER_PASS}@programming-hero.ifoutmp.mongodb.net/?appName=programming-hero`;
-
+console.log(uri)
 const client = new MongoClient(uri, {
     serverApi: {
         version: ServerApiVersion.v1,
@@ -69,7 +69,7 @@ const client = new MongoClient(uri, {
 
 async function run() {
     try {
-        await client.connect();
+        // await client.connect();
 
         const db = client.db("ticket_booking");
         const userCollection = db.collection("users");
@@ -240,62 +240,67 @@ async function run() {
 
         //creat payment
         app.post('/payment-checkout-session', verifyFBToken, async (req, res) => {
-            const { bookingId } = req.body;
+            try {
+                const { bookingId } = req.body;
 
-            const booking = await bookingsCollection.findOne({
-                _id: new ObjectId(bookingId)
-            });
-
-            if (!booking) {
-                return res.status(404).send({ message: "Booking not found" });
-            }
-
-            const ticket = await ticketCollection.findOne({
-                _id: new ObjectId(booking.ticketId)
-            });
-
-            const now = new Date();
-            const departure = new Date(ticket.departureDateTime);
-
-            if (departure < now) {
-                return res.status(400).send({
-                    message: "Departure time passed. Payment not allowed."
+                const booking = await bookingsCollection.findOne({
+                    _id: new ObjectId(bookingId)
                 });
-            }
 
-            if (booking.status !== "accepted") {
-                return res.status(400).send({
-                    message: "Booking not accepted yet"
+                if (!booking) {
+                    return res.status(404).json({ message: "Booking not found" });
+                }
+
+                const ticket = await ticketCollection.findOne({
+                    _id: new ObjectId(booking.ticketId)
                 });
+                console.log(ticket, booking)
+
+                const now = new Date();
+                const departure = new Date(ticket?.departureDateTime);
+
+                if (departure < now) {
+                    return res.status(400).json({
+                        message: "Departure time passed. Payment not allowed."
+                    });
+                }
+
+                if (booking.status !== "accepted") {
+                    return res.status(400).json({
+                        message: "Booking not accepted yet"
+                    });
+                }
+
+                const amount = booking.totalPrice * 100;
+
+                const session = await stripe.checkout.sessions.create({
+                    line_items: [
+                        {
+                            price_data: {
+                                currency: 'USD',
+                                unit_amount: amount,
+                                product_data: {
+                                    name: booking.ticketTitle
+                                }
+                            },
+                            quantity: 1
+                        }
+                    ],
+                    mode: 'payment',
+                    metadata: {
+                        bookingId: booking._id.toString()
+                    },
+                    customer_email: booking.userEmail,
+                    success_url: `${process.env.SITE_DOMAIN || 'http://localhost:3000'}/dashboard/bookingSuccess`,
+                    cancel_url: `${process.env.SITE_DOMAIN || 'http://localhost:3000'}/dashboard/bookingCancelled`,
+                });
+
+                res.json({ url: session.url }); // Changed from res.send to res.json
+            } catch (error) {
+                console.error('Payment session error:', error);
+                res.status(500).json({ message: error.message }); // Return JSON error
             }
-
-            const amount = booking.totalPrice * 100;
-
-            const session = await stripe.checkout.sessions.create({
-                line_items: [
-                    {
-                        price_data: {
-                            currency: 'USD',
-                            unit_amount: amount,
-                            product_data: {
-                                name: booking.ticketTitle
-                            }
-                        },
-                        quantity: 1
-                    }
-                ],
-                mode: 'payment',
-                metadata: {
-                    bookingId: booking._id.toString()
-                },
-                customer_email: booking.userEmail,
-                success_url: `${process.env.SITE_DOMAON}/dashboard/bookingSuccess`,
-                cancel_url: `${process.env.SITE_DOMAON}/dashboard/bookingCancelled`,
-            });
-
-            res.send({ url: session.url });
         });
-
 
         app.post("/payment/success/:bookingId", verifyFBToken, async (req, res) => {
             const bookingId = req.params.bookingId;
@@ -354,6 +359,27 @@ async function run() {
             const result = await paymentsCollection.find({ email }).toArray();
             res.send(result);
         });
+
+
+        // GET vendor profile
+        app.get("/vendors/profile/:email", verifyFBToken, async (req, res) => {
+            const email = req.params.email;
+
+
+            if (req.decoded_email !== email) {
+
+                return res.status(403).send({ message: "Forbidden" });
+            }
+
+            const vendor = await userCollection.findOne({ email, role: "vendor" });
+
+            if (!vendor) {
+                return res.status(404).send({ message: "Vendor not found" });
+            }
+
+            res.send(vendor);
+        });
+
 
         // vendor get api
         app.get("/users/:email/role", async (req, res) => {
@@ -442,6 +468,16 @@ async function run() {
         app.post("/tickets", async (req, res) => {
             const newTicket = req.body;
             newTicket.status = "Pending"
+            newTicket.isAdvertised = true
+            newTicket.create_date = new Date();
+
+
+            const result = await ticketCollection.insertOne(newTicket);
+            res.send(result);
+        });
+        app.get("/tickets/pending", async (req, res) => {
+            const newTicket = req.body;
+            newTicket.status = "Pending"
             newTicket.isAdvertised = false
             newTicket.create_date = new Date();
 
@@ -469,7 +505,7 @@ async function run() {
 
             const result = await ticketCollection.updateOne(
                 { _id: new ObjectId(id) },
-                { $set: { status: "Approved" } }
+                { $set: { status: "approved" } }
             );
 
             res.send(result);
@@ -588,7 +624,9 @@ async function run() {
         //  Get all tickets
         app.get("/tickets", async (req, res) => {
             const email = req.query.vendorEmail
+
             const query = {}
+            query.status = 'approved'
             if (email) {
                 query.vendorEmail = email
             }
