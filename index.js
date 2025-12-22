@@ -574,7 +574,7 @@ async function run() {
         //===========================//======================
         app.get("/admin/approved-tickets", verifyFBToken, verifyAdmin, async (req, res) => {
             const result = await ticketCollection
-                .find({ status: "Approved" })
+                .find({ status: "approved" })
                 .toArray();
             res.send(result);
         });
@@ -634,10 +634,31 @@ async function run() {
             res.send(result);
         });
 
+          app.get("/ticketsAdd", async (req, res) => {
+            const email = req.query.vendorEmail
+            const result = await ticketCollection.find({vendorEmail:email}).toArray();
+            res.send(result);
+        });
+
+        app.delete("/tickets/:id",  async (req, res) => {
+            const id = req.params.id
+            const query = {_id:new ObjectId(id)}
+            const email = req.query.vendorEmail
+            const result = await ticketCollection.deleteOne(query);
+            res.send(result);
+        });
+
         //  Advertisement tickets (Exactly 6)
         app.get("/tickets/advertised", async (req, res) => {
             const result = await ticketCollection
                 .find({ isAdvertised: true })
+                .limit(6)
+                .toArray();
+            res.send(result);
+        });
+        app.get("/tickets/letast", async (req, res) => {
+            const result = await ticketCollection
+                .find().sort({create_date:-1})
                 .limit(6)
                 .toArray();
             res.send(result);
